@@ -1,0 +1,10 @@
+{
+  "transactions": [
+    {
+      "rpc": "https://robinhood-rpc.publicnode.com"
+    },
+    {
+      "rpc": "https://robinhood-rpc.publicnode.com"
+    }
+  ]
+}
