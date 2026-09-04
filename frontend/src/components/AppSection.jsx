@@ -4,7 +4,7 @@ import { useWriteContract, useBalance } from 'wagmi'
 import { waitForTransactionReceipt } from 'wagmi/actions'
 import { parseEventLogs } from 'viem'
 import { config } from '../wagmi.js'
-import { createEncryptedWallet, unlockLocalWallet, hasLocalWallet, getLocalWalletClient } from '../lib/wallet.js'
+import { createEncryptedWallet, unlockLocalWallet, hasLocalWallet, getLocalWalletClient, revealPrivateKey } from '../lib/wallet.js'
 import { apiFetch, getSignFn } from '../lib/auth.js'
 import { DIAL_PROTOCOL_ADDRESS, DIAL_PROTOCOL_ABI } from '../lib/contracts.js'
 
@@ -301,9 +301,33 @@ function HistoryTab({ address, isExternalWallet }) {
 function ProfileTab({ address, isExternalWallet, onLogout, showToast }) {
   const { data: balance } = useBalance({ address })
   const bal = balance ? parseFloat(balance.formatted).toFixed(5) : '0.00000'
+  const [revealOpen, setRevealOpen] = useState(false)
+  const [revealPassword, setRevealPassword] = useState('')
+  const [revealedKey, setRevealedKey] = useState(null)
+  const [revealBusy, setRevealBusy] = useState(false)
 
   async function copyAddress() {
     try { await navigator.clipboard.writeText(address); showToast('Address copied') } catch { showToast('Copy failed', 'error') }
+  }
+
+  async function submitReveal() {
+    setRevealBusy(true)
+    try {
+      const key = await revealPrivateKey(revealPassword)
+      setRevealedKey(key)
+    } catch {
+      showToast('Wrong password', 'error')
+    } finally { setRevealBusy(false) }
+  }
+
+  function closeReveal() {
+    setRevealOpen(false)
+    setRevealPassword('')
+    setRevealedKey(null)
+  }
+
+  async function copyKey() {
+    try { await navigator.clipboard.writeText(revealedKey); showToast('Private key copied — store it somewhere safe') } catch { showToast('Copy failed', 'error') }
   }
 
   return (
@@ -329,6 +353,56 @@ function ProfileTab({ address, isExternalWallet, onLogout, showToast }) {
         <div className="profile-card">
           <div className="field-label">Local wallet</div>
           <div className="dim small">Stored encrypted in this browser. Unlock it with your password each session.</div>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setRevealOpen(true)}>
+            Back up private key
+          </button>
+        </div>
+      )}
+
+      {revealOpen && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && closeReveal()}>
+          <div className="modal">
+            <div className="modal-title">Back up private key</div>
+            {!revealedKey ? (
+              <>
+                <div className="modal-sub">
+                  Enter your wallet password. Anyone with this key controls your wallet — never share it or store it online.
+                </div>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="Password"
+                  value={revealPassword}
+                  onChange={e => setRevealPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && submitReveal()}
+                  autoFocus
+                />
+                <div className="modal-actions">
+                  <button className="btn btn-ghost" onClick={closeReveal}>Cancel</button>
+                  <button className="btn btn-primary" onClick={submitReveal} disabled={revealBusy || !revealPassword}>
+                    {revealBusy ? 'Decrypting…' : 'Reveal'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-sub" style={{ color: 'var(--red)' }}>
+                  This key gives full control of your wallet. Store it offline — never in cloud notes, email, or screenshots.
+                </div>
+                <textarea
+                  className="input"
+                  style={{ minHeight: 84, resize: 'none', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 12 }}
+                  readOnly
+                  value={revealedKey}
+                  onFocus={e => e.target.select()}
+                />
+                <div className="modal-actions">
+                  <button className="btn btn-ghost" onClick={closeReveal}>Hide</button>
+                  <button className="btn btn-primary" onClick={copyKey}>Copy key</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

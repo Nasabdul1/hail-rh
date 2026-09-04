@@ -120,6 +120,22 @@ export function getLocalSigner() {
   return cachedAccount
 }
 
+// Decrypt the stored wallet with the given password and return the raw private
+// key for user-initiated backup. Never caches the account or persists anything.
+export async function revealPrivateKey(password) {
+  const stored = readStored()
+  if (!stored || !stored.address) throw new Error('No local wallet found')
+
+  if (stored.version === 2) {
+    const payload = await decryptPayload(password, stored.salt, stored.iv, stored.ciphertext)
+    return payload.privateKey
+  }
+
+  if (stored.privateKey) return stored.privateKey
+
+  throw new Error('Unrecognized wallet format')
+}
+
 export function getLocalWalletClient() {
   return createWalletClient({
     account: getLocalSigner(),
