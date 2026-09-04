@@ -13,8 +13,11 @@ import calls from './routes/calls.js';
 import contacts from './routes/contacts.js';
 import tokens from './routes/tokens.js';
 import auth from './routes/auth.js';
+import push from './routes/push.js';
+import { init as initPush, sendToAddress } from './push.js';
 
 dotenv.config();
+initPush();
 
 const app = express();
 const server = createServer(app);
@@ -35,6 +38,7 @@ app.use('/api/profiles', profiles);
 app.use('/api/calls', calls);
 app.use('/api/contacts', contacts);
 app.use('/api/tokens', tokens);
+app.use('/api/push', push);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -129,10 +133,16 @@ wss.on('connection', (ws) => {
           }));
         } else {
           sendError(ws, 'recipient offline');
+          // Notify the recipient's registered devices via Web Push so an
+          // offline tab/app still surfaces the incoming call.
+          sendToAddress(to, {
+            title: 'Incoming call',
+            body: 'from ' + userAddress,
+            url: '/',
+            tag: 'hail-call',
+            callId: msg.callId.toString()
+          }).catch((err) => console.error('Push send failed:', err.message));
         }
-        break;
-      }
-      case 'signal': {
         if (!to) return sendError(ws, 'invalid recipient address');
         if (!isUint256(msg.callId)) return sendError(ws, 'invalid callId');
         const targetWs = sockets.get(to);

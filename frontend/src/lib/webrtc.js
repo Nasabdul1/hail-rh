@@ -1,9 +1,13 @@
-import { WS_URL } from './config.js'
+import { WS_URL, TURN_USERNAME, TURN_CREDENTIAL } from './config.js'
 
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:a.relay.metered.ca:80' },
+    { urls: 'turn:a.relay.metered.ca:80', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+    { urls: 'turn:a.relay.metered.ca:80?transport=tcp', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+    { urls: 'turn:a.relay.metered.ca:443', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
+    { urls: 'turns:a.relay.metered.ca:443?transport=tcp', username: TURN_USERNAME, credential: TURN_CREDENTIAL },
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }

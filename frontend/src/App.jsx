@@ -3,6 +3,7 @@ import { useAccount, useDisconnect, useWriteContract } from 'wagmi'
 import { getLocalWallet, getLocalWalletClient, removeLocalWallet } from './lib/wallet.js'
 import { ensureAuthToken, getSignFn } from './lib/auth.js'
 import { VoiceCallManager } from './lib/webrtc.js'
+import { subscribePush, unsubscribePush } from './lib/push.js'
 import { DIAL_PROTOCOL_ADDRESS, DIAL_PROTOCOL_ABI } from './lib/contracts.js'
 import Hero from './components/Hero.jsx'
 import Stats from './components/Stats.jsx'
@@ -115,6 +116,7 @@ export default function App() {
         const token = await ensureAuthToken(address, getSignFn(isConnected))
         if (cancelled) return
         await mgr.initWebSocket(token)
+        if (!cancelled) subscribePush(address, getSignFn(isConnected))
       } catch (e) {
         console.error('WS init failed', e)
         if (!cancelled) showToast('Could not sign in to call server', 'error')
@@ -122,6 +124,7 @@ export default function App() {
     })()
     return () => {
       cancelled = true
+      unsubscribePush(address, getSignFn(isConnected))
       mgr.close()
       callManagerRef.current = null
     }
