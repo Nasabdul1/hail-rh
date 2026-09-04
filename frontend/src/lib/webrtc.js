@@ -1,9 +1,9 @@
-const STUN_SERVERS = {
+import React from "react"
+
+const ICE_SERVERS = {
   iceServers: [
-    // STUN — public IP discovery
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // TURN — relay through firewall (free, no signup)
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
@@ -36,44 +36,40 @@ export class VoiceCallManager {
       this.ws.onerror = (e) => reject(e)
       this.ws.onmessage = async (event) => {
         const msg = JSON.parse(event.data)
-        console.log('WS received:', msg.type, msg)
+        console.log('WS:', msg.type, msg)
 
-        if (msg.type === 'signal' && msg.data) {
-          await this.handleSignal(msg.data)
-        }
-        if (msg.type === 'incoming_call') {
-          this.onStateChange('incoming', msg)
-        }
-        if (msg.type === 'call_accepted') {
-          // Recipient is ready — now we can create and send our offer
-          await this.createAndSendOffer()
-        }
-        if (msg.type === 'call_ended') {
-          this.onStateChange('ended', msg)
-          this.cleanup()
-        }
+        if (msg.type === 'signal' && msg.data) await this.handleSignal(msg.data)
+        if (msg.type === 'incoming_call') this.onStateChange('incoming', msg)
+        if (msg.type === 'call_accepted') await this.createAndSendOffer()
+        if (msg.type === 'call_ended') { this.onStateChange('ended', msg); this.cleanup() }
       }
     })
   }
 
-  // === CALLER SIDE ===
   async prepareCall(remoteAddress, callId) {
     this.remoteAddress = remoteAddress
     this.callId = callId
     this.onStateChange('calling')
 
-    // Get local media
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
 
-    // Create peer connection but DON'T create offer yet
-    this.pc = new RTCPeerConnection(STUN_SERVERS)
+    this.pc = new RTCPeerConnection(ICE_SERVERS)
     this.localStream.getTracks().forEach(t => this.pc.addTrack(t, this.localStream))
     this.pc.ontrack = (e) => this.onRemoteStream(e.streams[0])
-    this.pc.onicecandidate = (e) => {
-      if (e.candidate) this.sendSignal({ candidate: e.candidate })
+    this.pc.onicecandidate = (e) => { if (e.candidate) this.sendSignal({ candidate: e.candidate }) }
+
+    // MONITOR CONNECTION STATE
+    this.pc.onconnectionstatechange = () => {
+      console.log('WebRTC state:', this.pc.connectionState)
+      if (this.pc.connectionState === 'connected') {
+        this.onStateChange('connected')
+      }
+      if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'disconnected') {
+        this.onStateChange('ended')
+        this.cleanup()
+      }
     }
 
-    // Notify recipient that we're calling
     this.notifyCall(remoteAddress, callId)
   }
 
@@ -85,24 +81,27 @@ export class VoiceCallManager {
     this.sendSignal({ sdp: offer })
   }
 
-  // === RECIPIENT SIDE ===
   async answerCall(remoteAddress, callId) {
     this.remoteAddress = remoteAddress
     this.callId = callId
     this.onStateChange('connecting')
 
-    // Get local media
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
 
-    // Create peer connection
-    this.pc = new RTCPeerConnection(STUN_SERVERS)
+    this.pc = new RTCPeerConnection(ICE_SERVERS)
     this.localStream.getTracks().forEach(t => this.pc.addTrack(t, this.localStream))
     this.pc.ontrack = (e) => this.onRemoteStream(e.streams[0])
-    this.pc.onicecandidate = (e) => {
-      if (e.candidate) this.sendSignal({ candidate: e.candidate })
+    this.pc.onicecandidate = (e) => { if (e.candidate) this.sendSignal({ candidate: e.candidate }) }
+
+    this.pc.onconnectionstatechange = () => {
+      console.log('WebRTC state:', this.pc.connectionState)
+      if (this.pc.connectionState === 'connected') this.onStateChange('connected')
+      if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'disconnected') {
+        this.onStateChange('ended')
+        this.cleanup()
+      }
     }
 
-    // Tell caller we're ready to receive their offer
     this.sendAccept(remoteAddress)
   }
 
@@ -112,29 +111,21 @@ export class VoiceCallManager {
     }
   }
 
-  // === SIGNALING ===
   async handleSignal(data) {
     if (!this.pc) {
-      console.warn('No peer connection yet, storing pending offer')
-      if (data.sdp?.type === 'offer') {
-        this.pendingOffer = data.sdp
-      }
+      if (data.sdp?.type === 'offer') this.pendingOffer = data.sdp
       return
     }
-
     if (data.sdp?.type === 'offer') {
-      console.log('Received offer, creating answer...')
       await this.pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
       const answer = await this.pc.createAnswer()
       await this.pc.setLocalDescription(answer)
       this.sendSignal({ sdp: answer })
       this.onStateChange('connected')
     } else if (data.sdp?.type === 'answer') {
-      console.log('Received answer, connected!')
       await this.pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
       this.onStateChange('connected')
     } else if (data.candidate) {
-      console.log('Received ICE candidate')
       await this.pc.addIceCandidate(new RTCIceCandidate(data.candidate))
     }
   }
@@ -146,15 +137,11 @@ export class VoiceCallManager {
   }
 
   notifyCall(to, callId) {
-    if (this.ws?.readyState === 1) {
-      this.ws.send(JSON.stringify({ type: 'call', to, callId }))
-    }
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ type: 'call', to, callId }))
   }
 
   notifyEnd(to) {
-    if (this.ws?.readyState === 1) {
-      this.ws.send(JSON.stringify({ type: 'end_call', to }))
-    }
+    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ type: 'end_call', to }))
   }
 
   cleanup() {
