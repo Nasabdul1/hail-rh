@@ -5,7 +5,7 @@ import { VoiceCallManager } from './lib/webrtc.js'
 import Hero from './components/Hero.jsx'
 import Stats from './components/Stats.jsx'
 import Features from './components/Features.jsx'
-import HowItWorks from './components/HowitWorks.jsx'
+import HowItWorks from './components/HowItWorks.jsx'
 import AppSection from './components/AppSection.jsx'
 import Footer from './components/Footer.jsx'
 
