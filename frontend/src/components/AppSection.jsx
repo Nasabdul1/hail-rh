@@ -179,7 +179,7 @@ function HomeTab({ address, callManagerRef, callState, setCallState, showToast, 
         l => l.args.caller?.toLowerCase() === address.toLowerCase() && l.args.recipient?.toLowerCase() === to.toLowerCase()
       )
       if (!log) throw new Error('CallInitiated event not found in receipt')
-      const callId = log.args.callId
+      const callId = log.args.callId.toString()
 
       setCallState({ status: 'calling', to, callId })
       await mgr.prepareCall(to, callId)
