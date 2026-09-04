@@ -16,7 +16,7 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(rateLimit({ windowMs: 60 * 1000, max: 100 }));
 
