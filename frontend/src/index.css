@@ -749,3 +749,50 @@ input, textarea { font-family: var(--font); }
   border-radius: 999px;
   padding: 5px 12px;
 }
+
+/* ---------- Social Links ---------- */
+.socials {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.social-link {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  transition: all 0.2s var(--ease);
+  text-decoration: none;
+}
+
+.social-link:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-dim);
+  transform: translateY(-2px);
+  box-shadow: var(--green-glow);
+}
+
+.social-link:active { transform: scale(0.95); }
+
+/* Logo images */
+.header-logo-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.footer-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}

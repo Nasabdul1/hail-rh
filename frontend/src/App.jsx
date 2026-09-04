@@ -82,8 +82,8 @@ export default function App() {
 
       <header className="site-header">
         <div className="header-inner">
-          <a href="#" className="header-logo">
-            <span className="logo-dot" />
+         <a href="#" className="header-logo">
+            <img src="/logo.png" alt="Hail.rh" className="header-logo-img" />
             Hail.rh
           </a>
           <nav className="header-nav">
