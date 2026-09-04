@@ -1,5 +1,5 @@
-import React from 'react'
 import { defaultWagmiConfig } from '@web3modal/wagmi'
+import { WC_PROJECT_ID } from './lib/config.js'
 
 export const robinhoodChain = {
   id: 4663,
@@ -14,18 +14,16 @@ export const robinhoodChain = {
   }
 }
 
-const projectId = import.meta.env.VITE_WC_PROJECT_ID || 'demo'
-
 const metadata = {
   name: 'Hail.rh',
   description: 'On-chain voice calls on Robinhood Chain',
-  url: 'https://hail.rh',
-  icons: ['https://hail.rh/icon.png']
+  url: 'https://hailrh.online',
+  icons: ['https://hailrh.online/logo.png']
 }
 
 export const config = defaultWagmiConfig({
   chains: [robinhoodChain],
-  projectId,
+  projectId: WC_PROJECT_ID,
   metadata,
   enableCoinbase: false
 })

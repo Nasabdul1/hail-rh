@@ -1,18 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { openWalletModal } from '../modal.js'
 import { useWriteContract, useBalance } from 'wagmi'
-import { createLocalWallet, getLocalWalletClient, exportWalletData } from '../lib/wallet.js'
+import { waitForTransactionReceipt } from 'wagmi/actions'
+import { parseEventLogs } from 'viem'
+import { config } from '../wagmi.js'
+import { createEncryptedWallet, unlockLocalWallet, hasLocalWallet, getLocalWalletClient } from '../lib/wallet.js'
+import { apiFetch, getSignFn } from '../lib/auth.js'
 import { DIAL_PROTOCOL_ADDRESS, DIAL_PROTOCOL_ABI } from '../lib/contracts.js'
 
 const GAS_LIMIT = 200000n
-const CALL_VALUE = 0n
 
 function shortAddr(a) { return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '' }
-function formatTimer(sec) {
-  const m = String(Math.floor(sec / 60)).padStart(2, '0')
-  const s = String(sec % 60).padStart(2, '0')
-  return `${m}:${s}`
-}
 function contactsKey(address) { return `hail_contacts_${address.toLowerCase()}` }
 function loadContacts(address) {
   try { return JSON.parse(localStorage.getItem(contactsKey(address))) || [] } catch { return [] }
@@ -20,19 +18,39 @@ function loadContacts(address) {
 function saveContacts(address, list) { localStorage.setItem(contactsKey(address), JSON.stringify(list)) }
 
 function AuthPrompt({ onWalletCreated, showToast }) {
-  const [showKey, setShowKey] = useState(false)
-  const [newWallet, setNewWallet] = useState(null)
-  const [copied, setCopied] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [mode, setMode] = useState('create')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const walletExists = hasLocalWallet()
 
-  function handleCreate() {
-    const w = createLocalWallet()
-    setNewWallet(w)
-    setShowKey(true)
+  function openCreate() { setMode('create'); setPassword(''); setConfirm(''); setShowModal(true) }
+  function openUnlock() { setMode('unlock'); setPassword(''); setShowModal(true) }
+
+  async function submit() {
+    if (mode === 'create') {
+      if (password.length < 8) return showToast('Password must be at least 8 characters', 'error')
+      if (password !== confirm) return showToast('Passwords do not match', 'error')
+      setBusy(true)
+      try {
+        const w = await createEncryptedWallet(password)
+        onWalletCreated(w)
+      } catch {
+        showToast('Could not create wallet', 'error')
+      } finally { setBusy(false) }
+    } else {
+      setBusy(true)
+      try {
+        const w = await unlockLocalWallet(password)
+        onWalletCreated(w)
+      } catch {
+        showToast('Wrong password', 'error')
+      } finally { setBusy(false) }
+    }
   }
 
-  async function copyKey() {
-    try { await navigator.clipboard.writeText(newWallet.privateKey); setCopied(true); showToast('Copied'); setTimeout(() => setCopied(false), 2000) } catch { showToast('Copy failed', 'error') }
-  }
+  const isCreate = mode === 'create'
 
   return (
     <div className="auth-prompt">
@@ -42,18 +60,47 @@ function AuthPrompt({ onWalletCreated, showToast }) {
       <h3>Connect to start calling</h3>
       <p>Create a wallet in one tap, or connect your existing wallet to hail any address on Robinhood Chain.</p>
       <div className="auth-actions">
-        <button className="btn btn-primary" onClick={handleCreate}>Create Wallet</button>
+        {walletExists ? (
+          <button className="btn btn-primary" onClick={openUnlock}>Unlock Wallet</button>
+        ) : (
+          <button className="btn btn-primary" onClick={openCreate}>Create Wallet</button>
+        )}
         <button className="btn btn-ghost" onClick={() => openWalletModal()}>Connect Wallet</button>
       </div>
-      {showKey && newWallet && (
-        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && null}>
+      {showModal && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
           <div className="modal">
-            <div className="modal-title">Save your private key</div>
-            <div className="modal-sub">This key is the only way to recover your wallet. Store it somewhere safe.</div>
-            <div className="key-box">{newWallet.privateKey}</div>
+            <div className="modal-title">{isCreate ? 'Set a password for your wallet' : 'Unlock your wallet'}</div>
+            <div className="modal-sub">
+              {isCreate
+                ? 'Your wallet is encrypted with this password and stored only in this browser. There is no recovery without it.'
+                : 'Enter your password to decrypt your wallet for this session.'}
+            </div>
+            <input
+              className="input"
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !isCreate && submit()}
+              autoFocus
+            />
+            {isCreate && (
+              <input
+                className="input"
+                type="password"
+                placeholder="Confirm password"
+                style={{ marginTop: 10 }}
+                value={confirm}
+                onChange={e => setConfirm(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && submit()}
+              />
+            )}
             <div className="modal-actions">
-              <button className="btn btn-dark" onClick={copyKey}>{copied ? 'Copied ✓' : 'Copy Key'}</button>
-              <button className="btn btn-primary" onClick={() => onWalletCreated(newWallet)}>I've saved it</button>
+              <button className="btn btn-dark" onClick={() => setShowModal(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy} onClick={submit}>
+                {busy ? <span className="spinner" /> : (isCreate ? 'Create & Encrypt' : 'Unlock')}
+              </button>
             </div>
           </div>
         </div>
@@ -69,19 +116,8 @@ function HomeTab({ address, callManagerRef, callState, setCallState, showToast, 
   const [showAddContact, setShowAddContact] = useState(false)
   const [contactName, setContactName] = useState('')
   const [placing, setPlacing] = useState(false)
-  const [seconds, setSeconds] = useState(0)
-  const timerRef = useRef(null)
 
   const inCall = ['calling', 'connecting', 'connected'].includes(callState.status)
-  const isIncoming = callState.status === 'incoming'
-
-  useEffect(() => {
-    if (callState.status === 'connected') {
-      setSeconds(0)
-      timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000)
-    } else { clearInterval(timerRef.current) }
-    return () => clearInterval(timerRef.current)
-  }, [callState.status])
 
   async function pasteAddress() {
     try {
@@ -122,23 +158,30 @@ function HomeTab({ address, callManagerRef, callState, setCallState, showToast, 
       const mgr = callManagerRef.current
       if (!mgr) throw new Error('Call service not ready')
 
+      let receipt
       if (isExternalWallet) {
-        await writeContractAsync({
+        const hash = await writeContractAsync({
           address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
-          functionName: 'initiateCall', args: [to, '0x'],
-          value: CALL_VALUE, gas: GAS_LIMIT
+          functionName: 'initiateCall', args: [to, '0x'], gas: GAS_LIMIT
         })
+        receipt = await waitForTransactionReceipt(config, { hash })
       } else {
         const client = getLocalWalletClient()
-        await client.writeContract({
+        const hash = await client.writeContract({
           address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
-          functionName: 'initiateCall', args: [to, '0x'],
-          value: CALL_VALUE, gas: GAS_LIMIT
+          functionName: 'initiateCall', args: [to, '0x'], gas: GAS_LIMIT
         })
+        receipt = await client.waitForTransactionReceipt({ hash })
       }
 
-      const callId = Date.now()
-      setCallState({ status: 'calling', to })
+      const logs = parseEventLogs({ abi: DIAL_PROTOCOL_ABI, logs: receipt.logs, eventName: 'CallInitiated' })
+      const log = logs.find(
+        l => l.args.caller?.toLowerCase() === address.toLowerCase() && l.args.recipient?.toLowerCase() === to.toLowerCase()
+      )
+      if (!log) throw new Error('CallInitiated event not found in receipt')
+      const callId = log.args.callId
+
+      setCallState({ status: 'calling', to, callId })
       await mgr.prepareCall(to, callId)
     } catch (err) {
       console.error(err)
@@ -149,27 +192,6 @@ function HomeTab({ address, callManagerRef, callState, setCallState, showToast, 
       setCallState({ status: 'idle' })
     } finally { setPlacing(false) }
   }
-
-  async function answerIncoming() {
-    const mgr = callManagerRef.current
-    const { from, callId } = callState
-    try {
-      try {
-        if (isExternalWallet) {
-          await writeContractAsync({ address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
-            functionName: 'answerCall', args: [BigInt(callId || 0)], gas: GAS_LIMIT })
-        }
-      } catch (e) { console.warn('on-chain answer skipped:', e?.shortMessage) }
-      setCallState({ status: 'connecting', to: from })
-      await mgr.answerCall(from, callId)
-    } catch (err) {
-      showToast('Could not access microphone', 'error')
-      setCallState({ status: 'idle' })
-    }
-  }
-
-  function hangUp() { callManagerRef.current?.end(); setCallState({ status: 'idle' }) }
-  function declineIncoming() { callManagerRef.current?.notifyEnd(callState.from); setCallState({ status: 'idle' }) }
 
   return (
     <>
@@ -225,18 +247,25 @@ function HomeTab({ address, callManagerRef, callState, setCallState, showToast, 
   )
 }
 
-function HistoryTab({ address }) {
+function HistoryTab({ address, isExternalWallet }) {
   const [calls, setCalls] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
-// ... then in the fetch:
-      fetch(`${API_URL}/api/calls/${address}`)
-      .then(r => r.json())
-      .then(data => { setCalls(Array.isArray(data) ? data : []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [address])
+    let cancelled = false
+    apiFetch(address, getSignFn(isExternalWallet), `/api/calls/${address}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then(data => {
+        if (cancelled) return
+        setCalls(Array.isArray(data) ? data : [])
+        setLoading(false)
+      })
+      .catch((e) => {
+        console.error('History fetch failed:', e)
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [address, isExternalWallet])
 
   if (loading) return <div className="empty-state"><strong>Loading…</strong></div>
   if (calls.length === 0) return <div className="empty-state"><strong>No calls yet</strong><br />Hail a wallet and your calls will show up here.</div>
@@ -271,16 +300,10 @@ function HistoryTab({ address }) {
 
 function ProfileTab({ address, isExternalWallet, onLogout, showToast }) {
   const { data: balance } = useBalance({ address })
-  const [keyRevealed, setKeyRevealed] = useState(false)
-  const localWallet = exportWalletData()
   const bal = balance ? parseFloat(balance.formatted).toFixed(5) : '0.00000'
 
   async function copyAddress() {
     try { await navigator.clipboard.writeText(address); showToast('Address copied') } catch { showToast('Copy failed', 'error') }
-  }
-
-  async function copyKey() {
-    try { await navigator.clipboard.writeText(localWallet.privateKey); showToast('Private key copied') } catch { showToast('Copy failed', 'error') }
   }
 
   return (
@@ -302,25 +325,17 @@ function ProfileTab({ address, isExternalWallet, onLogout, showToast }) {
         <span className="status-pill"><span className="status-dot online" />4663</span>
       </div>
 
-      {!isExternalWallet && localWallet && (
+      {!isExternalWallet && (
         <div className="profile-card">
-          <div className="field-label">Wallet export</div>
-          <div className={`key-box ${keyRevealed ? '' : 'blurred'}`} style={{ margin: '0 0 12px' }}>
-            {localWallet.privateKey}
-          </div>
-          <div className="row">
-            <button className="btn btn-dark btn-sm" onClick={() => setKeyRevealed(!keyRevealed)}>
-              {keyRevealed ? 'Hide' : 'Reveal'}
-            </button>
-            {keyRevealed && <button className="btn btn-primary btn-sm" onClick={copyKey}>Copy Key</button>}
-          </div>
+          <div className="field-label">Local wallet</div>
+          <div className="dim small">Stored encrypted in this browser. Unlock it with your password each session.</div>
         </div>
       )}
 
       <div className="profile-card danger-zone">
         <div className="danger-title">Log out</div>
         <div className="danger-text">
-          {isExternalWallet ? 'Disconnects your wallet from Hail.rh.' : 'Removes this wallet from your browser. Make sure your private key is saved first.'}
+          {isExternalWallet ? 'Disconnects your wallet from Hail.rh.' : 'Removes this wallet from your browser. Without your password there is no way to recover it.'}
         </div>
         <button className="btn btn-danger btn-sm" onClick={onLogout}>
           {isExternalWallet ? 'Disconnect' : 'Log Out'}
@@ -360,7 +375,7 @@ export default function AppSection({ id, address, isAuthed, isExternalWallet, ca
               </div>
               <div className="app-tab-body">
                 {appTab === 'home' && <HomeTab address={address} callManagerRef={callManagerRef} callState={callState} setCallState={setCallState} showToast={showToast} isExternalWallet={isExternalWallet} />}
-                {appTab === 'history' && <HistoryTab address={address} />}
+                {appTab === 'history' && <HistoryTab address={address} isExternalWallet={isExternalWallet} />}
                 {appTab === 'profile' && <ProfileTab address={address} isExternalWallet={isExternalWallet} onLogout={onLogout} showToast={showToast} />}
               </div>
             </>

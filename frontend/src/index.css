@@ -553,7 +553,6 @@ input, textarea { font-family: var(--font); }
 .danger-zone { border-color: rgba(255, 80, 0, 0.3); }
 .danger-title { color: var(--red); font-size: 14px; font-weight: 700; margin-bottom: 4px; }
 .danger-text { font-size: 13px; color: var(--text-dim); margin-bottom: 14px; line-height: 1.5; }
-.blurred { filter: blur(6px); user-select: none; }
 
 .call-overlay {
   position: fixed;
@@ -651,17 +650,6 @@ input, textarea { font-family: var(--font); }
 .modal-sub { font-size: 14px; color: var(--text-dim); line-height: 1.55; margin-bottom: 18px; }
 .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
 .modal-actions .btn { flex: 1; }
-.key-box {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 14px;
-  font-family: 'SF Mono', 'Roboto Mono', monospace;
-  font-size: 12px;
-  word-break: break-all;
-  color: var(--green);
-  line-height: 1.6;
-}
 
 .site-footer {
   border-top: 1px solid var(--border);

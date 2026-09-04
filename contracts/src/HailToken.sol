@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
@@ -21,10 +21,7 @@ contract HailToken is ERC20, ERC20Burnable, Ownable {
     constructor(string memory _name, string memory _symbol, address _owner) 
         ERC20(_name, _symbol) 
         Ownable(_owner) 
-    {
-        // Initial mint to owner (can be 0 for fair launch)
-        _mint(_owner, 0);
-    }
+    {}
 
     function mint(address to, uint256 amount) external onlyMinter {
         require(totalSupply() + amount <= MAX_SUPPLY, "Max supply exceeded");

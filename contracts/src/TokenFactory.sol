@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 import "./HailToken.sol";
 
@@ -32,9 +32,10 @@ contract TokenFactory {
         HailToken token = new HailToken(_name, _symbol, msg.sender);
         tokenAddress = address(token);
 
+        uint256 supply = _initialSupply * 10**18;
         if (_initialSupply > 0) {
             token.addMinter(address(this));
-            token.mint(msg.sender, _initialSupply * 10**18);
+            token.mint(msg.sender, supply);
             token.removeMinter(address(this));
         }
 
@@ -42,7 +43,7 @@ contract TokenFactory {
             tokenAddress: tokenAddress,
             name: _name,
             symbol: _symbol,
-            supply: _initialSupply,
+            supply: supply,
             creator: msg.sender,
             createdAt: block.timestamp
         });
@@ -50,7 +51,7 @@ contract TokenFactory {
         tokens.push(info);
         creatorTokens[msg.sender].push(tokens.length - 1);
 
-        emit TokenCreated(tokenAddress, _name, _symbol, _initialSupply, msg.sender);
+        emit TokenCreated(tokenAddress, _name, _symbol, supply, msg.sender);
         return tokenAddress;
     }
 

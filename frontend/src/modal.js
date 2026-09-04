@@ -1,9 +1,10 @@
 import { createWeb3Modal } from '@web3modal/wagmi'
 import { config } from './wagmi.js'
+import { WC_PROJECT_ID } from './lib/config.js'
 
 const modal = createWeb3Modal({
   wagmiConfig: config,
-  projectId: import.meta.env.VITE_WC_PROJECT_ID || 'demo',
+  projectId: WC_PROJECT_ID,
   themeMode: 'dark',
   themeVariables: {
     '--w3m-color-mix': '#00C805',

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
 contract DialProtocol {
     struct Call {
         address caller;
         address recipient;
         uint256 timestamp;
-        uint256 value;
         bool answered;
         bool ended;
         bytes data;
@@ -14,12 +13,9 @@ contract DialProtocol {
 
     Call[] public calls;
     mapping(address => uint256[]) public userCalls;
-    mapping(address => uint256) public earnings;
 
     uint256 public constant PLATFORM_FEE_BPS = 0; // 0% — all calls are free
     uint256 public constant CALL_TIMEOUT = 60 seconds;
-
-    address public owner;
 
     event CallInitiated(
         uint256 indexed callId,
@@ -30,20 +26,16 @@ contract DialProtocol {
     event CallAnswered(uint256 indexed callId, uint256 timestamp);
     event CallEnded(uint256 indexed callId, uint256 duration);
 
-    constructor() {
-        owner = msg.sender;
-    }
-
-    function initiateCall(address recipient, bytes calldata data) external payable returns (uint256) {
+    function initiateCall(address recipient, bytes calldata data) external returns (uint256) {
         require(recipient != address(0), "Invalid recipient");
         require(recipient != msg.sender, "Cannot call yourself");
+        require(data.length <= 256, "Data too large");
 
         uint256 callId = calls.length;
         calls.push(Call({
             caller: msg.sender,
             recipient: recipient,
             timestamp: block.timestamp,
-            value: 0,
             answered: false,
             ended: false,
             data: data
@@ -57,6 +49,7 @@ contract DialProtocol {
     }
 
     function answerCall(uint256 callId) external {
+        require(callId < calls.length, "Invalid call ID");
         Call storage c = calls[callId];
         require(c.recipient == msg.sender, "Not recipient");
         require(!c.answered, "Already answered");
@@ -68,6 +61,7 @@ contract DialProtocol {
     }
 
     function endCall(uint256 callId) external {
+        require(callId < calls.length, "Invalid call ID");
         Call storage c = calls[callId];
         require(c.caller == msg.sender || c.recipient == msg.sender, "Not participant");
         require(!c.ended, "Already ended");
@@ -82,8 +76,7 @@ contract DialProtocol {
     }
 
     function getCallDetails(uint256 callId) external view returns (Call memory) {
+        require(callId < calls.length, "Invalid call ID");
         return calls[callId];
     }
-
-    receive() external payable {}
 }
