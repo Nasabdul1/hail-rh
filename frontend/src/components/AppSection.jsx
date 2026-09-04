@@ -276,7 +276,9 @@ function HistoryTab({ address }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`http://localhost:4000/api/calls/${address}`)
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+// ... then in the fetch:
+      fetch(`${API_URL}/api/calls/${address}`)
       .then(r => r.json())
       .then(data => { setCalls(Array.isArray(data) ? data : []); setLoading(false) })
       .catch(() => setLoading(false))
