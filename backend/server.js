@@ -47,16 +47,15 @@ app.get('/api/ca', (req, res) => {
   res.json({ ca, active: !!ca });
 });
 
-app.use((req, res) => res.status(404).json({ error: 'Not found' }));
-
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
 // WebSocket registry: address -> ws. Address always comes from a verified
 // login token, never from client-supplied fields.
 const sockets = new Map();
+
+// Diagnostic: which addresses currently have a live call-server connection.
+// Open in a browser while debugging "recipient offline" calls.
+app.get('/api/ws/online', (req, res) => {
+  res.json({ online: [...sockets.keys()] });
+});
 
 function sendError(ws, reason) {
   if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'error', reason }));
@@ -209,6 +208,14 @@ const heartbeat = setInterval(() => {
 heartbeat.unref();
 
 const PORT = process.env.PORT || 4000;
+
+app.use((req, res) => res.status(404).json({ error: 'Not found' }));
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 server.listen(PORT, () => {
   console.log(`🚀 Hail backend running on port ${PORT}`);
   console.log(`🔗 WebSocket: ws://localhost:${PORT}/ws`);
