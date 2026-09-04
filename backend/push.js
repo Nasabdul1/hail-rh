@@ -15,7 +15,12 @@ export function init() {
     return;
   }
 
-  webpush.setVapidDetails(subject, publicKey, privateKey);
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  } catch (err) {
+    console.warn('⚠️  push notifications disabled: invalid VAPID keys —', err.message);
+    return;
+  }
   enabled = true;
   console.log('🔔 Push notifications enabled');
 }
