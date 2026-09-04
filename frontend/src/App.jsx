@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useAccount, useDisconnect, useWriteContract } from 'wagmi'
-import { getLocalWallet, getLocalWalletClient, removeLocalWallet } from './lib/wallet.js'
+import { getLocalWallet, getLocalWalletClient, removeLocalWallet, isWalletUnlocked } from './lib/wallet.js'
 import { ensureAuthToken, getSignFn } from './lib/auth.js'
 import { VoiceCallManager } from './lib/webrtc.js'
 import { subscribePush, unsubscribePush } from './lib/push.js'
@@ -43,6 +43,7 @@ export default function App() {
   const [appTab, setAppTab] = useState('home')
   const [seconds, setSeconds] = useState(0)
   const [muted, setMuted] = useState(false)
+  const [walletSession, setWalletSession] = useState(0)
   const callManagerRef = useRef(null)
   const audioRef = useRef(null)
   const toastTimer = useRef(null)
@@ -90,7 +91,14 @@ export default function App() {
 
   useEffect(() => {
     if (!address) return
+    // Signing must match the ACTIVE address source: MetaMask if an external
+    // account is connected, otherwise the local wallet.
+    const isExternalActive = !!wagmiAddress
+    // A stored local wallet is not usable until unlocked — wait for unlock
+    // (handleWalletCreated bumps walletSession and re-runs this effect).
+    if (!isExternalActive && !isWalletUnlocked()) return
     let cancelled = false
+    const signFn = getSignFn(isExternalActive)
     const mgr = new VoiceCallManager(
       (stream) => setRemoteStream(stream),
       (status, data) => {
@@ -113,10 +121,10 @@ export default function App() {
     callManagerRef.current = mgr
     ;(async () => {
       try {
-        const token = await ensureAuthToken(address, getSignFn(isConnected))
+        const token = await ensureAuthToken(address, signFn)
         if (cancelled) return
         await mgr.initWebSocket(token)
-        if (!cancelled) subscribePush(address, getSignFn(isConnected))
+        if (!cancelled) subscribePush(address, signFn)
       } catch (e) {
         console.error('WS init failed', e)
         if (!cancelled) showToast('Could not sign in to call server', 'error')
@@ -124,26 +132,27 @@ export default function App() {
     })()
     return () => {
       cancelled = true
-      unsubscribePush(address, getSignFn(isConnected))
+      unsubscribePush(address, signFn)
       mgr.close()
       callManagerRef.current = null
     }
-  }, [address, isConnected, showToast])
+  }, [address, wagmiAddress, walletSession, showToast])
 
   function handleLogout() {
     if (isConnected) disconnect()
     removeLocalWallet()
     setLocalWallet(null)
+    setWalletSession((s) => s + 1)
     setAppTab('home')
     setCallState({ status: 'idle' })
     setMuted(false)
     showToast('Logged out')
   }
 
-  function handleWalletCreated(w) { setLocalWallet(w); showToast('Wallet ready') }
+  function handleWalletCreated(w) { setLocalWallet(w); setWalletSession((s) => s + 1); showToast('Wallet ready') }
 
   async function answerCallOnChain(callId) {
-    if (isConnected) {
+    if (wagmiAddress) {
       return writeContractAsync({
         address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
         functionName: 'answerCall', args: [BigInt(callId)], gas: GAS_LIMIT
@@ -186,7 +195,7 @@ export default function App() {
 
   async function endCallOnChain(callId) {
     try {
-      if (isConnected) {
+      if (wagmiAddress) {
         await writeContractAsync({
           address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
           functionName: 'endCall', args: [BigInt(callId)], gas: GAS_LIMIT
@@ -306,7 +315,7 @@ export default function App() {
           </nav>
           {isAuthed ? (
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
-              {isConnected ? 'Disconnect' : 'Log Out'}
+              {wagmiAddress ? 'Disconnect' : 'Log Out'}
             </button>
           ) : (
             <button className="btn btn-primary btn-sm" onClick={() => document.getElementById('app').scrollIntoView({ behavior: 'smooth' })}>
@@ -326,7 +335,7 @@ export default function App() {
           id="app"
           address={address}
           isAuthed={isAuthed}
-          isExternalWallet={isConnected}
+          isExternalWallet={!!wagmiAddress}
           callManagerRef={callManagerRef}
           callState={callState}
           setCallState={setCallState}
