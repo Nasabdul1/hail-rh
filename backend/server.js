@@ -143,19 +143,6 @@ wss.on('connection', (ws) => {
             callId: msg.callId.toString()
           }).catch((err) => console.error('Push send failed:', err.message));
         }
-        if (!to) return sendError(ws, 'invalid recipient address');
-        if (!isUint256(msg.callId)) return sendError(ws, 'invalid callId');
-        const targetWs = sockets.get(to);
-        if (targetWs && targetWs.readyState === 1) {
-          targetWs.send(JSON.stringify({
-            type: 'signal',
-            from: userAddress,
-            callId: msg.callId.toString(),
-            data: msg.data ?? null
-          }));
-        } else {
-          sendError(ws, 'recipient offline');
-        }
         break;
       }
       case 'end_call': {
