@@ -145,6 +145,21 @@ wss.on('connection', (ws) => {
         }
         break;
       }
+      case 'signal': {
+        if (!to) return sendError(ws, 'invalid recipient address');
+        if (!msg.data || typeof msg.data !== 'object') return sendError(ws, 'invalid signal data');
+        const peerWs = sockets.get(to);
+        if (peerWs && peerWs.readyState === 1) {
+          peerWs.send(JSON.stringify({
+            type: 'signal',
+            from: userAddress,
+            data: msg.data
+          }));
+        } else {
+          sendError(ws, 'recipient offline');
+        }
+        break;
+      }
       case 'end_call': {
         if (!to) return sendError(ws, 'invalid recipient address');
         if (!isUint256(msg.callId)) return sendError(ws, 'invalid callId');

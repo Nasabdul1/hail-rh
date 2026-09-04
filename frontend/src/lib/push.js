@@ -1,5 +1,18 @@
-import { VAPID_PUBLIC_KEY } from './config.js'
+import { VAPID_PUBLIC_KEY, API_URL } from './config.js'
 import { apiFetch } from './auth.js'
+
+async function getVapidPublicKey() {
+  // Prefer the key served by the backend — it is guaranteed to match the
+  // backend's private key, and sidesteps a malformed value in the frontend env.
+  try {
+    const res = await fetch(`${API_URL}/api/push/public-key`)
+    if (res.ok) {
+      const { publicKey } = await res.json()
+      if (typeof publicKey === 'string' && publicKey.trim()) return publicKey.trim()
+    }
+  } catch { /* fall through to env value */ }
+  return VAPID_PUBLIC_KEY
+}
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4)
@@ -34,9 +47,10 @@ export async function subscribePush(address, signFn) {
 
     let subscription = await registration.pushManager.getSubscription()
     if (!subscription) {
+      const vapidKey = await getVapidPublicKey()
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+        applicationServerKey: urlBase64ToUint8Array(vapidKey)
       })
     }
 
