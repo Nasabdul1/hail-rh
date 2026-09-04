@@ -49,7 +49,9 @@ export class VoiceCallManager {
   }
 
   openSocket(onFirstOpen, onFirstError) {
-    const ws = new WebSocket(`${WS_URL}/ws`)
+    // VITE_WS_URL is expected to include the /ws path; append it only if missing.
+    const base = WS_URL.replace(/\/+$/, '')
+    const ws = new WebSocket(base.endsWith('/ws') ? base : `${base}/ws`)
     this.ws = ws
 
     ws.onopen = () => {
