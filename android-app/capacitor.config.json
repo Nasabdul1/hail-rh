@@ -1,0 +1,12 @@
+{
+  "appId": "online.hailrh.app",
+  "appName": "Hail",
+  "webDir": "web",
+  "server": {
+    "url": "https://hailrh.online",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

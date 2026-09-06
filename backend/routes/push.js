@@ -60,6 +60,47 @@ router.delete('/subscribe', requireAuth, async (req, res) => {
   }
 });
 
+// FCM tokens are opaque but bounded strings issued by Firebase.
+const FCM_TOKEN_MAX = 512;
+
+router.post('/native-subscribe', requireAuth, async (req, res) => {
+  try {
+    const { token, platform } = req.body || {};
+    if (!isStringOfMaxLen(token, FCM_TOKEN_MAX) || !token.trim()) {
+      return badRequest(res, 'Invalid token: expected a non-empty string');
+    }
+    const platformValue = isStringOfMaxLen(platform, 32) && platform.trim() ? platform.trim() : 'android';
+    await pool.query(
+      `INSERT INTO fcm_tokens (address, token, platform)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (token) DO UPDATE
+         SET address = EXCLUDED.address, platform = EXCLUDED.platform`,
+      [req.address, token.trim(), platformValue]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Native push subscribe error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/native-subscribe', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!isStringOfMaxLen(token, FCM_TOKEN_MAX) || !token.trim()) {
+      return badRequest(res, 'Invalid token');
+    }
+    await pool.query(
+      'DELETE FROM fcm_tokens WHERE token = $1 AND address = $2',
+      [token.trim(), req.address]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Native push unsubscribe error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/public-key', (req, res) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || null });
 });

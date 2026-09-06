@@ -293,8 +293,7 @@ input, textarea { font-family: var(--font); }
 @media (max-width: 900px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .features-grid { grid-template-columns: 1fr; } .feature-card { padding: 24px 20px; } }
 
-.how { padding: 60px 0; border-top: 1px solid var(--border); }
-.steps {
+.how { padding: 60px 0; border-top: 1px solid var(--border); }.steps {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -327,6 +326,44 @@ input, textarea { font-family: var(--font); }
 .step-body h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
 .step-body p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
 @media (max-width: 640px) { .step { padding: 20px; gap: 14px; } .step-num { width: 36px; height: 36px; font-size: 13px; } }
+
+.download { padding: 60px 0; border-top: 1px solid var(--border); }
+.download-lead {
+  font-size: 16px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 440px;
+  margin: 16px auto 0;
+}
+.download-buttons {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.store-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 24px;
+  color: var(--text);
+  transition: border-color 0.2s, transform 0.15s;
+  cursor: not-allowed;
+}
+.store-btn:disabled { opacity: 0.55; }
+.store-icon { color: var(--text-dim); display: flex; }
+.store-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.store-coming {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+.store-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 
 .app-section {
   padding: 80px 0;

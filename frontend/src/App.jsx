@@ -4,11 +4,13 @@ import { getLocalWallet, getLocalWalletClient, removeLocalWallet, isWalletUnlock
 import { ensureAuthToken, getSignFn } from './lib/auth.js'
 import { VoiceCallManager } from './lib/webrtc.js'
 import { subscribePush, unsubscribePush } from './lib/push.js'
+import { isNativeApp, registerNativePush, consumePendingCallAction, onNativeCallAction, notifyNativeWsState } from './lib/native.js'
 import { DIAL_PROTOCOL_ADDRESS, DIAL_PROTOCOL_ABI } from './lib/contracts.js'
 import Hero from './components/Hero.jsx'
 import Stats from './components/Stats.jsx'
 import Features from './components/Features.jsx'
 import HowItWorks from './components/HowItWorks.jsx'
+import DownloadApp from './components/DownloadApp.jsx'
 import AppSection from './components/AppSection.jsx'
 import Footer from './components/Footer.jsx'
 
@@ -48,6 +50,16 @@ export default function App() {
   const audioRef = useRef(null)
   const toastTimer = useRef(null)
   const ringTimer = useRef(null)
+  // Latest call state in a ref, so native push callbacks and the WS handler
+  // always see current values regardless of closure age.
+  const callStateRef = useRef(callState)
+  // callId the native incoming-call UI already answered: auto-answer as soon
+  // as the (re-delivered) incoming_call for it arrives over the WebSocket.
+  const nativeAnswerRef = useRef(null)
+
+  useEffect(() => { callStateRef.current = callState }, [callState])
+  const wagmiAddressRef = useRef(wagmiAddress)
+  useEffect(() => { wagmiAddressRef.current = wagmiAddress }, [wagmiAddress])
 
   const address = wagmiAddress || localWallet?.address || null
   const isAuthed = !!address
@@ -102,8 +114,15 @@ export default function App() {
     const mgr = new VoiceCallManager(
       (stream) => setRemoteStream(stream),
       (status, data) => {
-        if (status === 'incoming') setCallState({ status: 'incoming', from: data.from, callId: data.callId })
-        else if (status === 'ended') {
+        if (status === 'incoming') {
+          setCallState({ status: 'incoming', from: data.from, callId: data.callId })
+          // The native call UI already answered this call (cold start from
+          // the lock screen): skip the in-app ring and connect immediately.
+          if (nativeAnswerRef.current && nativeAnswerRef.current === String(data.callId)) {
+            nativeAnswerRef.current = null
+            answerIncoming({ from: data.from, callId: data.callId })
+          }
+        } else if (status === 'ended') {
           setCallState({ status: 'idle' })
           setRemoteStream(null)
           setMuted(false)
@@ -114,6 +133,9 @@ export default function App() {
           setMuted(false)
           showToast('No answer', 'error')
         } else if (status === 'error') {
+          // 'recipient offline' while ringing is not fatal: the callee may
+          // still cold-start from a push and answer before the ring timeout.
+          if (data?.reason === 'recipient offline' && callStateRef.current.status === 'calling') return
           showToast(data?.reason || 'Connection error', 'error')
         } else setCallState((s) => ({ ...s, status }))
       }
@@ -124,7 +146,19 @@ export default function App() {
         const token = await ensureAuthToken(address, signFn)
         if (cancelled) return
         await mgr.initWebSocket(token)
-        if (!cancelled) subscribePush(address, signFn)
+        if (!cancelled) {
+          subscribePush(address, signFn)
+          if (isNativeApp()) {
+            notifyNativeWsState(true)
+            registerNativePush(address, signFn)
+            // Cold start from the native incoming-call UI: remember the
+            // answered callId; the server re-delivers it as incoming_call.
+            const pending = await consumePendingCallAction()
+            if (!cancelled && pending?.action === 'answer' && pending.callId != null) {
+              nativeAnswerRef.current = String(pending.callId)
+            }
+          }
+        }
       } catch (e) {
         console.error('WS init failed', e)
         if (!cancelled) showToast('Could not sign in to call server', 'error')
@@ -133,10 +167,28 @@ export default function App() {
     return () => {
       cancelled = true
       unsubscribePush(address, signFn)
+      if (isNativeApp()) notifyNativeWsState(false)
       mgr.close()
       callManagerRef.current = null
     }
   }, [address, wagmiAddress, walletSession, showToast])
+
+  // Answer/Decline pressed on the native incoming-call UI while the app is
+  // already running.
+  useEffect(() => {
+    if (!isNativeApp()) return
+    return onNativeCallAction((event) => {
+      if (!event || event.callId == null) return
+      const cs = callStateRef.current
+      const matches = cs.status === 'incoming' && String(cs.callId) === String(event.callId)
+      if (event.action === 'answer') {
+        if (matches) answerIncoming()
+        else nativeAnswerRef.current = String(event.callId)
+      } else if (event.action === 'decline' && matches) {
+        declineIncoming()
+      }
+    })
+  }, [])
 
   function handleLogout() {
     if (isConnected) disconnect()
@@ -152,7 +204,7 @@ export default function App() {
   function handleWalletCreated(w) { setLocalWallet(w); setWalletSession((s) => s + 1); showToast('Wallet ready') }
 
   async function answerCallOnChain(callId) {
-    if (wagmiAddress) {
+    if (wagmiAddressRef.current) {
       return writeContractAsync({
         address: DIAL_PROTOCOL_ADDRESS, abi: DIAL_PROTOCOL_ABI,
         functionName: 'answerCall', args: [BigInt(callId)], gas: GAS_LIMIT
@@ -165,9 +217,9 @@ export default function App() {
     })
   }
 
-  async function answerIncoming() {
+  async function answerIncoming(override) {
     const mgr = callManagerRef.current
-    const { from, callId } = callState
+    const { from, callId } = override || callStateRef.current
     try {
       await answerCallOnChain(callId)
     } catch (e) {
@@ -189,7 +241,8 @@ export default function App() {
   }
 
   function declineIncoming() {
-    callManagerRef.current?.notifyEnd(callState.from, callState.callId)
+    const { from, callId } = callStateRef.current
+    callManagerRef.current?.notifyEnd(from, callId)
     setCallState({ status: 'idle' })
   }
 
@@ -311,6 +364,7 @@ export default function App() {
           <nav className="header-nav">
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
+            <a href="#download">Get the app</a>
             <a href="#app">App</a>
           </nav>
           {isAuthed ? (
@@ -331,6 +385,7 @@ export default function App() {
         <Stats />
         <Features />
         <HowItWorks />
+        <DownloadApp />
         <AppSection
           id="app"
           address={address}

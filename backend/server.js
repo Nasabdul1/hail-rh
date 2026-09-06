@@ -15,9 +15,11 @@ import tokens from './routes/tokens.js';
 import auth from './routes/auth.js';
 import push from './routes/push.js';
 import { init as initPush, sendToAddress } from './push.js';
+import { initFcm, sendCallToAddress, sendCallEndToAddress } from './fcm.js';
 
 dotenv.config();
 initPush();
+await initFcm();
 
 const app = express();
 const server = createServer(app);
@@ -50,6 +52,26 @@ app.get('/api/ca', (req, res) => {
 // WebSocket registry: address -> ws. Address always comes from a verified
 // login token, never from client-supplied fields.
 const sockets = new Map();
+
+// Pending-call re-delivery: when a call's recipient is offline, remember the
+// ringing call and buffer its signaling so a device that comes online within
+// the TTL (e.g. the Android app cold-starting from a push) still receives the
+// incoming_call and the caller's offer/ICE candidates.
+const PENDING_CALL_TTL_MS = 60000;
+const MAX_BUFFERED_SIGNALS = 100;
+const pendingCalls = new Map(); // to -> { from, callId, expiresAt }
+const bufferedSignals = new Map(); // `${to}:${callId}` -> { signals: [], expiresAt }
+
+function sweepPending() {
+  const now = Date.now();
+  for (const [key, entry] of pendingCalls) {
+    if (entry.expiresAt <= now) pendingCalls.delete(key);
+  }
+  for (const [key, entry] of bufferedSignals) {
+    if (entry.expiresAt <= now) bufferedSignals.delete(key);
+  }
+}
+setInterval(sweepPending, 15000).unref();
 
 // Diagnostic: which addresses currently have a live call-server connection.
 // Open in a browser while debugging "recipient offline" calls.
@@ -105,6 +127,26 @@ wss.on('connection', (ws) => {
         sockets.set(userAddress, ws);
         ws.send(JSON.stringify({ type: 'authenticated', address: userAddress }));
         console.log('WS authenticated:', userAddress);
+
+        // Re-deliver a call that started ringing while this device was
+        // offline, together with any buffered offer/ICE candidates.
+        sweepPending();
+        const pending = pendingCalls.get(userAddress);
+        if (pending) {
+          pendingCalls.delete(userAddress);
+          ws.send(JSON.stringify({
+            type: 'incoming_call',
+            from: pending.from,
+            callId: pending.callId
+          }));
+          const buffered = bufferedSignals.get(`${userAddress}:${pending.callId}`);
+          if (buffered) {
+            bufferedSignals.delete(`${userAddress}:${pending.callId}`);
+            for (const data of buffered.signals) {
+              ws.send(JSON.stringify({ type: 'signal', from: pending.from, data }));
+            }
+          }
+        }
       } else if (msg.type === 'register') {
         sendError(ws, 'use token auth');
       } else {
@@ -132,6 +174,13 @@ wss.on('connection', (ws) => {
           }));
         } else {
           sendError(ws, 'recipient offline');
+          // Remember the ringing call so a device coming online within the TTL
+          // (e.g. the Android app cold-starting from a push) gets the call.
+          pendingCalls.set(to, {
+            from: userAddress,
+            callId: msg.callId.toString(),
+            expiresAt: Date.now() + PENDING_CALL_TTL_MS
+          });
           // Notify the recipient's registered devices via Web Push so an
           // offline tab/app still surfaces the incoming call.
           sendToAddress(to, {
@@ -141,6 +190,12 @@ wss.on('connection', (ws) => {
             tag: 'hail-call',
             callId: msg.callId.toString()
           }).catch((err) => console.error('Push send failed:', err.message));
+          // Native devices (Android app) get a high-priority FCM data message
+          // that triggers the system incoming-call UI.
+          sendCallToAddress(to, {
+            from: userAddress,
+            callId: msg.callId.toString()
+          }).catch((err) => console.error('FCM send failed:', err.message));
         }
         break;
       }
@@ -155,6 +210,17 @@ wss.on('connection', (ws) => {
             data: msg.data
           }));
         } else {
+          // Buffer the signal so it can be flushed if the recipient comes
+          // online while the call is still ringing (cold-start answer).
+          if (isUint256(msg.callId)) {
+            const key = `${to}:${msg.callId.toString()}`;
+            let entry = bufferedSignals.get(key);
+            if (!entry) {
+              entry = { signals: [], expiresAt: Date.now() + PENDING_CALL_TTL_MS };
+              bufferedSignals.set(key, entry);
+            }
+            if (entry.signals.length < MAX_BUFFERED_SIGNALS) entry.signals.push(msg.data);
+          }
           sendError(ws, 'recipient offline');
         }
         break;
@@ -171,6 +237,13 @@ wss.on('connection', (ws) => {
           }));
         } else {
           sendError(ws, 'recipient offline');
+          // The peer is offline: drop any pending ring for this call and tell
+          // native devices to dismiss their incoming-call UI.
+          const pend = pendingCalls.get(to);
+          if (pend && pend.callId === msg.callId.toString()) pendingCalls.delete(to);
+          bufferedSignals.delete(`${to}:${msg.callId.toString()}`);
+          sendCallEndToAddress(to, { callId: msg.callId.toString() })
+            .catch((err) => console.error('FCM end_call send failed:', err.message));
         }
         break;
       }

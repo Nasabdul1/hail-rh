@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hail</string>
+    <string name="title_activity_main">Hail</string>
+    <string name="package_name">online.hailrh.app</string>
+    <string name="custom_url_scheme">online.hailrh.app</string>
+</resources>
